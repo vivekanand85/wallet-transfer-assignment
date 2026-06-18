@@ -29,7 +29,7 @@ public class Transfer {
 	private String fromWalletId;
 	@Column(name="to_wallet_id",nullable=false)
 	private String toWalletId;
-	@Column(nullable=false)
+	@Column(nullable = false, precision = 19, scale = 4)
 	private BigDecimal amount;
 	
     @Enumerated(EnumType.STRING)

@@ -31,7 +31,7 @@ public class LedgerEntry {
     @Column(nullable = false)
     private LedgerType type;
 
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
     @Column(name = "created_at")
