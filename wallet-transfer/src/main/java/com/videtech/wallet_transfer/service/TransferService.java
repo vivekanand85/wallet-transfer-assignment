@@ -32,12 +32,20 @@ public class TransferService {
 
     @Transactional(noRollbackFor = InsufficientBalanceExceptions.class)
     public Transfer execute(String idempotencyKey, String fromWalletId, String toWalletId, BigDecimal amount) {
-
        
     	Optional<Transfer> existing = transferRepository.findByIdempotencyKey(idempotencyKey);
-    	if (existing.isPresent()) {
-    	    return existing.get();
-    	}
+     	if (existing.isPresent()) {
+     	    Transfer prior = existing.get();
+     	    if (!prior.getFromWalletId().equals(fromWalletId)
+     	            || !prior.getToWalletId().equals(toWalletId)
+     	            || prior.getAmount().compareTo(amount) != 0) {
+     	        throw new RuntimeException("Idempotency key reuse with different parameters: " + idempotencyKey);
+     	    }
+     	    if (prior.getStatus() == TransferStatus.FAILED) {
+     	        throw new RuntimeException(prior.getResponseBody() != null ? prior.getResponseBody() : "Transfer previously failed");
+     	    }
+     	    return prior;
+     	}
        
     	Transfer transfer = new Transfer();
     	transfer.setId(UUID.randomUUID().toString());
@@ -57,7 +65,9 @@ public class TransferService {
     	}
 
         try {
-            
+            if (fromWalletId.equals(toWalletId)) {
+                throw new RuntimeException("fromWalletId and toWalletId must be different");
+            }
             List<String> ordered = List.of(fromWalletId, toWalletId)
                     .stream()
                     .sorted()

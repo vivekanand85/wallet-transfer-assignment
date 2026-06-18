@@ -26,6 +26,9 @@ public class TransferController {
                 request.getToWalletId(),
                 request.getAmount()
         );
+        if (transfer.getStatus() == com.videtech.wallet_transfer.domain.TransferStatus.FAILED) {
+            return ResponseEntity.badRequest().body(toResponse(transfer));
+        }
         return ResponseEntity.ok(toResponse(transfer));
     }
 

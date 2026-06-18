@@ -71,6 +71,24 @@ public class TransferServiceTest {
         w2.setCreatedAt(java.time.LocalDateTime.now());
         walletRepository.save(w2);
     }
+    @Test
+    void transfer_failedIdempotency_sameKeyReturnsSameFailure() {
+        // first attempt fails
+        assertThatThrownBy(() ->
+                transferService.execute("key-fail-idem", "wallet_1", "wallet_2", new BigDecimal("9999"))
+        ).isInstanceOf(RuntimeException.class);
+
+        // second attempt with same key returns same failed transfer
+        Transfer existing = transferRepository.findByIdempotencyKey("key-fail-idem").get();
+        assertThat(existing.getStatus()).isEqualTo(TransferStatus.FAILED);
+
+        // no ledger entries created
+        assertThat(ledgerEntryRepository.findByTransferId(existing.getId())).isEmpty();
+
+        // balances unchanged
+        assertThat(walletRepository.findById("wallet_1").get().getBalance())
+                .isEqualByComparingTo("1000.0000");
+    }
     
     @Test
     void transfer_happyPath_balancesUpdatedAndLedgerCreated() {
