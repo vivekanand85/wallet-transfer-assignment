@@ -79,6 +79,11 @@ public class TransferServiceTest {
         ).isInstanceOf(RuntimeException.class);
 
         // second attempt with same key returns same failed transfer
+        assertThatThrownBy(() ->
+                transferService.execute("key-fail-idem", "wallet_1", "wallet_2", new BigDecimal("9999"))
+        ).isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Insufficient balance");
+
         Transfer existing = transferRepository.findByIdempotencyKey("key-fail-idem").get();
         assertThat(existing.getStatus()).isEqualTo(TransferStatus.FAILED);
 
