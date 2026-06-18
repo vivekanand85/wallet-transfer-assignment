@@ -26,7 +26,6 @@ import com.videtech.wallet_transfer.repository.LedgerEntryRepository;
 import com.videtech.wallet_transfer.repository.TransferRepository;
 import com.videtech.wallet_transfer.repository.WalletRepository;
 import com.videtech.wallet_transfer.service.TransferService;
-import java.util.UUID;
 
 @SpringBootTest
 @Testcontainers
@@ -130,29 +129,40 @@ public class TransferServiceTest {
     }
     @Test
     void transfer_concurrency_noDoubleSpend() throws InterruptedException {
-        int threads = 10;
-        BigDecimal amount = new BigDecimal("150");
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-        CountDownLatch latch = new CountDownLatch(threads);
+    int threads = 10;
+    BigDecimal amount = new BigDecimal("150");
+    ExecutorService executor = Executors.newFixedThreadPool(threads);
+    CountDownLatch latch = new CountDownLatch(threads);
+    java.util.concurrent.atomic.AtomicInteger successCount = new java.util.concurrent.atomic.AtomicInteger();
 
-        for (int i = 0; i < threads; i++) {
-            String key = "key-concurrent-" + i;
-            executor.submit(() -> {
-                try {
-                    transferService.execute(key, "wallet_1", "wallet_2", amount);
-                } catch (Exception ignored) {
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        latch.await();
-        executor.shutdown();
-
-        BigDecimal finalBalance = walletRepository.findById("wallet_1").get().getBalance();
-        assertThat(finalBalance).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+    for (int i = 0; i < threads; i++) {
+        String key = "key-concurrent-" + i;
+        executor.submit(() -> {
+            try {
+                transferService.execute(key, "wallet_1", "wallet_2", amount);
+                successCount.incrementAndGet();
+            } catch (Exception ignored) {
+            } finally {
+                latch.countDown();
+            }
+        });
     }
+
+    latch.await();
+    executor.shutdown();
+
+    BigDecimal w1 = walletRepository.findById("wallet_1").orElseThrow().getBalance();
+    BigDecimal w2 = walletRepository.findById("wallet_2").orElseThrow().getBalance();
+    BigDecimal expectedW1 = new BigDecimal("1000.0000")
+            .subtract(amount.multiply(BigDecimal.valueOf(successCount.get())));
+    BigDecimal expectedW2 = new BigDecimal("500.0000")
+            .add(amount.multiply(BigDecimal.valueOf(successCount.get())));
+
+    assertThat(w1).isEqualByComparingTo(expectedW1);
+    assertThat(w2).isEqualByComparingTo(expectedW2);
+    assertThat(w1).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+    assertThat(ledgerEntryRepository.findAll()).hasSize(successCount.get() * 2);
+}
 }
 
 

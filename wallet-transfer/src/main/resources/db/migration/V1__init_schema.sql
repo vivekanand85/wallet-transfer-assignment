@@ -29,7 +29,6 @@ CREATE TABLE ledger_entries (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_transfers_idempotency_key ON transfers(idempotency_key);
 CREATE INDEX idx_ledger_transfer_id ON ledger_entries(transfer_id);
 CREATE INDEX idx_ledger_wallet_id ON ledger_entries(wallet_id);
 

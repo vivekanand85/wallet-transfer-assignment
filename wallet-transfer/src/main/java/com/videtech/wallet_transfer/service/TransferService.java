@@ -7,8 +7,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-//import jakarta.transaction.Transactional;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.videtech.wallet_transfer.domain.LedgerEntry;
@@ -16,6 +14,7 @@ import com.videtech.wallet_transfer.domain.LedgerType;
 import com.videtech.wallet_transfer.domain.Transfer;
 import com.videtech.wallet_transfer.domain.TransferStatus;
 import com.videtech.wallet_transfer.domain.Wallet;
+import com.videtech.wallet_transfer.exception.InsufficientBalanceExceptions;
 import com.videtech.wallet_transfer.repository.LedgerEntryRepository;
 import com.videtech.wallet_transfer.repository.TransferRepository;
 import com.videtech.wallet_transfer.repository.WalletRepository;
@@ -30,27 +29,32 @@ public class TransferService {
     private final WalletRepository walletRepository;
     private final TransferRepository transferRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
-    private final TransferStatusService transferStatusService;
-    @Transactional
+
+    @Transactional(noRollbackFor = InsufficientBalanceExceptions.class)
     public Transfer execute(String idempotencyKey, String fromWalletId, String toWalletId, BigDecimal amount) {
 
        
-        Optional<Transfer> existing = transferRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            return existing.get();
-        }
-
+    	Optional<Transfer> existing = transferRepository.findByIdempotencyKey(idempotencyKey);
+    	if (existing.isPresent()) {
+    	    return existing.get();
+    	}
        
-        Transfer transfer = new Transfer();
-        transfer.setId(UUID.randomUUID().toString());
-        transfer.setIdempotencyKey(idempotencyKey);
-        transfer.setFromWalletId(fromWalletId);
-        transfer.setToWalletId(toWalletId);
-        transfer.setAmount(amount);
-        transfer.setStatus(TransferStatus.PENDING);
-        transfer.setCreatedAt(LocalDateTime.now());
-        transfer.setUpdatedAt(LocalDateTime.now());
-        transferRepository.save(transfer);
+    	Transfer transfer = new Transfer();
+    	transfer.setId(UUID.randomUUID().toString());
+    	transfer.setIdempotencyKey(idempotencyKey);
+    	transfer.setFromWalletId(fromWalletId);
+    	transfer.setToWalletId(toWalletId);
+    	transfer.setAmount(amount);
+    	transfer.setStatus(TransferStatus.PENDING);
+    	transfer.setCreatedAt(LocalDateTime.now());
+    	transfer.setUpdatedAt(LocalDateTime.now());
+    	
+    	try {
+    	    transferRepository.saveAndFlush(transfer);
+    	} catch (org.springframework.dao.DataIntegrityViolationException e) {
+    	    return transferRepository.findByIdempotencyKey(idempotencyKey)
+    	            .orElseThrow(() -> new RuntimeException("Idempotency conflict"));
+    	}
 
         try {
             
@@ -71,8 +75,10 @@ public class TransferService {
 
            
             if (fromWallet.getBalance().compareTo(amount) < 0) {
-                transferStatusService.markFailed(transfer);
-                throw new RuntimeException("Insufficient balance in wallet: " + fromWalletId);
+                transfer.setStatus(TransferStatus.FAILED);
+                transfer.setUpdatedAt(LocalDateTime.now());
+                transferRepository.saveAndFlush(transfer);
+                throw new InsufficientBalanceExceptions("Insufficient balance in wallet: " + fromWalletId);
             }
 
             
@@ -108,12 +114,16 @@ public class TransferService {
            
             return transfer;
 
-        }  catch (RuntimeException e) {
-            if (transfer.getStatus() != TransferStatus.FAILED) {
-                transferStatusService.markFailed(transfer);
-            }
-            throw e;
-        }
+         
+    } catch (InsufficientBalanceExceptions e) {
+        throw e;
+    } catch (RuntimeException e) {
+        transfer.setStatus(TransferStatus.FAILED);
+        transfer.setUpdatedAt(LocalDateTime.now());
+        transferRepository.saveAndFlush(transfer);
+        throw e;
+    }
+    
     }
     
 
